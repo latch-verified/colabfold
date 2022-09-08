@@ -1,1 +1,1 @@
-# colabfold
+# ColabFold
