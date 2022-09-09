@@ -253,8 +253,7 @@ def run_mmseqs2(x, prefix, use_env=True, use_filter=True,
         a3m_lines[M].append(line)
 
   # return results
-
-  a3m_lines = ["".join(a3m_lines[n]) for n in Ms]
+  a3m_lines = ["".join(a3m_lines.get(n, [])) for n in Ms]
 
   if use_templates:
     template_paths_ = []

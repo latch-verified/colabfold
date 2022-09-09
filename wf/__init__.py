@@ -1,11 +1,12 @@
 import subprocess
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Annotated
-from latch import large_gpu_task, workflow, message
-from latch.resources.launch_plan import LaunchPlan
-from latch.types import LatchFile, LatchDir
+from typing import Annotated, Optional
+
 from flytekit.core.annotation import FlyteAnnotation
+from latch import large_gpu_task, message, workflow
+from latch.resources.launch_plan import LaunchPlan
+from latch.types import LatchDir, LatchFile
 
 
 def _fmt_dir(bucket_path: str) -> str:
@@ -119,6 +120,25 @@ def mine_inference_amber(
                     },
                 )
                 raise RuntimeError("The MMseqs2 API is giving errors.")
+            if "Could not get MSA/templates" in realtime_output:
+                message(
+                    "error",
+                    {
+                        "title": f"MMseqs2 Results Parsing Error",
+                        "body": "Failed to parse results from MMseqs2. Please contact support@latch.bio or message us via the chat in the bottom of the left sidebar.",
+                    },
+                )
+                raise RuntimeError("MMseqs2 Results Parsing Error")
+            if "Could not generate input features" in realtime_output:
+                message(
+                    "error",
+                    {
+                        "title": f"No candidates found for sequence.",
+                        "body": "No candidates found for sequence. Please contact support@latch.bio or message us via the chat in the bottom of the left sidebar.",
+                    },
+                )
+                raise RuntimeError("Could not generate input features")
+
             print(realtime_output.strip(), flush=True)
 
     retval = process.poll()
@@ -176,7 +196,7 @@ def colabfold_mmseqs2_wf(
     ] = None,
     custom_output_dir: Optional[LatchDir] = None,
     nrof_models: NROFModels = NROFModels.one,
-    run_name: str = "run1"
+    run_name: str = "run1",
 ) -> LatchDir:
     """The ColabFold version of AlphaFold2 is optimized for extremely fast predictions on small proteins. It uses the same basic architecture as AlphaFold2, but optimizes the sequence search procedure.
 
@@ -197,7 +217,7 @@ def colabfold_mmseqs2_wf(
 
     Acknowledgements and reference help from the [ColabFold README](https://github.com/sokrypton/ColabFold/blob/main/README.md)
     ### Acknowledgments
-    - We would like to thank the [RoseTTAFold](https://github.com/RosettaCommons/RoseTTAFold) and [AlphaFold](https://github.com/deepmind/alphafold) team for doing an excellent job open sourcing the software. 
+    - We would like to thank the [RoseTTAFold](https://github.com/RosettaCommons/RoseTTAFold) and [AlphaFold](https://github.com/deepmind/alphafold) team for doing an excellent job open sourcing the software.
     - Also credit to [David Koes](https://github.com/dkoes) for his awesome [py3Dmol](https://3dmol.csb.pitt.edu/) plugin, without whom these notebooks would be quite boring!
     - A colab by Sergey Ovchinnikov (@sokrypton), Milot Mirdita (@milot_mirdita) and Martin Steinegger (@thesteinegger).
 
@@ -234,7 +254,7 @@ def colabfold_mmseqs2_wf(
                 Enter the file containing the amino acid sequence (or sequences) you wish to fold. Alternatively,
                 you can enter the amino acid sequence directly. Each line of the input fasta represents a single
                 protein to be folded. The header line must start with `>` and the sequence line can only contain
-                capital letters. Or, the header line can be entirely omitted in which case the entires will be 
+                capital letters. Or, the header line can be entirely omitted in which case the entires will be
                 labelled by index. For folding multimers, separate sequences under a single header with colon.
                 For example, `MTA...ANH:CDW...RMA:ESP...CDW` would represent a multimer with three chains.
             - fork: input_sequence_fork
@@ -330,13 +350,14 @@ def colabfold_mmseqs2_wf(
         output_dir=custom_output_dir,
     )
 
+
 LaunchPlan(
     colabfold_mmseqs2_wf,
     "Monomer",
     {
         "aa_sequence": ">TEST_SEQUENCE\nMTANHLESPNCDWKNNRMAIVHMVNVTPLRMMEEPRAAVEAAFEGIMEPAVVGDMVEYWNKMISTCCNYYQMGSSRSHLEEKAQMVDRFWFCPCIYYASGKWRNMFLNILHVWGHHHYPRNDLKPCSYLSCKLPDLRIFFNHMQTCCHFVTLLFLTEWPTYMIYNSVDLCPMTIPRRNTCRTMTEVSSWCEPAIPEWWQATVKGGWMSTHTKFCWYPVLDPHHEYAESKMDTYGQCKKGGMVRCYKHKQQVWGNNHNESKAPCDDQPTYLCPPGEVYKGDHISKREAENMTNAWLGEDTHNFMEIMHCTAKMASTHFGSTTIYWAWGGHVRPAATWRVYPMIQEGSHCQC",
         "run_name": "test_monomer",
-    }
+    },
 )
 
 LaunchPlan(
@@ -345,5 +366,5 @@ LaunchPlan(
     {
         "aa_sequence": ">Lambda_1_Lambda_1\nMAVKISGVLKDGTGKPVQNCTIQLKARRNSTTVVVNTVGSENPDEAGRYSMDVEYGQYSVILQVDGFPPSHAGTITVYEDSQPGTLNDFLCAMTEDDARPEVLRRLELMVEEVARNASVVAQSTADAKKSAGDASASAAQVAALVTDATDSARAASTSAGQAASSAQEASSGAEAASAKATEAEKSAAAAESSKNAAATSAGAAKTSETNAAASQQSAATSASTAATKASEAATSARDAVASKEAAKSSETNASSSAGRAASSATAAENSARAAKTSETNARSSETAAERSASAAADAKTAAAGSASTASTKATEAAGSAVSASQSKSAAEAAAIRAKNSAKRAEDIASAVALEDADTTRKGIVQLSSATNSTSETLAATPKAVKVVMDETNRKAPLDSPALTGTPTAPTALRGTNNTQIANTAFVLAAIADVIDASPDALNTLNELAAALGNDPDFATTMTNALAGKQPKNATLTALAGLSTAKNKLPYFAENDAASLTELTQVGRDILAKNSVADVLEYLGAGENSAFPAGAPIPWPSDIVPSGYVLMQGQAFDKSAYPKLAVAYPSGVLPDMRGWTIKGKPASGRAVLSQEQDGIKSHTHSASASGTDLGTKTTSSFDYGTKTTGSFDYGTKSTNNTGAHAHSLSGSTGAAGAHAHTSGLRMNSSGWSQYGTATITGSLSTVKGTSTQGIAYLSKTDSQGSHSHSLSGTAVSAGAHAHTVGIGAHQHPVVIGAHAHSFSIGSHGHTITVNAAGNAENTVKNIAFNYIVRLA:MAVKISGVLKDGTGKPVQNCTIQLKARRNSTTVVVNTVGSENPDEAGRYSMDVEYGQYSVILQVDGFPPSHAGTITVYEDSQPGTLNDFLCAMTEDDARPEVLRRLELMVEEVARNASVVAQSTADAKKSAGDASASAAQVAALVTDATDSARAASTSAGQAASSAQEASSGAEAASAKATEAEKSAAAAESSKNAAATSAGAAKTSETNAAASQQSAATSASTAATKASEAATSARDAVASKEAAKSSETNASSSAGRAASSATAAENSARAAKTSETNARSSETAAERSASAAADAKTAAAGSASTASTKATEAAGSAVSASQSKSAAEAAAIRAKNSAKRAEDIASAVALEDADTTRKGIVQLSSATNSTSETLAATPKAVKVVMDETNRKAPLDSPALTGTPTAPTALRGTNNTQIANTAFVLAAIADVIDASPDALNTLNELAAALGNDPDFATTMTNALAGKQPKNATLTALAGLSTAKNKLPYFAENDAASLTELTQVGRDILAKNSVADVLEYLGAGENSAFPAGAPIPWPSDIVPSGYVLMQGQAFDKSAYPKLAVAYPSGVLPDMRGWTIKGKPASGRAVLSQEQDGIKSHTHSASASGTDLGTKTTSSFDYGTKTTGSFDYGTKSTNNTGAHAHSLSGSTGAAGAHAHTSGLRMNSSGWSQYGTATITGSLSTVKGTSTQGIAYLSKTDSQGSHSHSLSGTAVSAGAHAHTVGIGAHQHPVVIGAHAHSFSIGSHGHTITVNAAGNAENTVKNIAFNYIVRLA:MAVKISGVLKDGTGKPVQNCTIQLKARRNSTTVVVNTVGSENPDEAGRYSMDVEYGQYSVILQVDGFPPSHAGTITVYEDSQPGTLNDFLCAMTEDDARPEVLRRLELMVEEVARNASVVAQSTADAKKSAGDASASAAQVAALVTDATDSARAASTSAGQAASSAQEASSGAEAASAKATEAEKSAAAAESSKNAAATSAGAAKTSETNAAASQQSAATSASTAATKASEAATSARDAVASKEAAKSSETNASSSAGRAASSATAAENSARAAKTSETNARSSETAAERSASAAADAKTAAAGSASTASTKATEAAGSAVSASQSKSAAEAAAIRAKNSAKRAEDIASAVALEDADTTRKGIVQLSSATNSTSETLAATPKAVKVVMDETNRKAPLDSPALTGTPTAPTALRGTNNTQIANTAFVLAAIADVIDASPDALNTLNELAAALGNDPDFATTMTNALAGKQPKNATLTALAGLSTAKNKLPYFAENDAASLTELTQVGRDILAKNSVADVLEYLGAGENSAFPAGAPIPWPSDIVPSGYVLMQGQAFDKSAYPKLAVAYPSGVLPDMRGWTIKGKPASGRAVLSQEQDGIKSHTHSASASGTDLGTKTTSSFDYGTKTTGSFDYGTKSTNNTGAHAHSLSGSTGAAGAHAHTSGLRMNSSGWSQYGTATITGSLSTVKGTSTQGIAYLSKTDSQGSHSHSLSGTAVSAGAHAHTVGIGAHQHPVVIGAHAHSFSIGSHGHTITVNAAGNAENTVKNIAFNYIVRLA",
         "run_name": "test_multimer",
-    }
+    },
 )

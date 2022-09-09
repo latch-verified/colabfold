@@ -1,2 +1,3 @@
 .logs/
 .env/
+.latch_report.tar.gz
