@@ -131,8 +131,8 @@ def mine_inference_amber(
         latch_out_location = f"latch:///ColabFold Outputs/{run_name}"
 
     return LatchDir(
-        str((local_output).resolve()),
-        remote_directory=latch_out_location,
+        path=str((local_output).resolve()),
+        remote_path=latch_out_location,
     )
 
 
