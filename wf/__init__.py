@@ -84,7 +84,7 @@ def mine_inference_amber(
         "--data",
         "/root/data",
         "--host-url",
-        "http://ec2-35-167-25-158.us-west-2.compute.amazonaws.com:80/api",
+        "http://ec2-52-38-163-139.us-west-2.compute.amazonaws.com:80/api",
     ]
 
     command = " ".join(command)
