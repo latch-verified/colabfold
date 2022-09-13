@@ -81,18 +81,21 @@ def run_mmseqs2(x, prefix, use_env=True, use_filter=True,
       try:
         # https://requests.readthedocs.io/en/latest/user/advanced/#advanced
         # "good practice to set connect timeouts to slightly larger than a multiple of 3"
-        res = requests.post(f'{host_url}/{submission_endpoint}', data={'q':query,'mode': mode}, timeout=6.02)
-      except requests.exceptions.Timeout:
-        logger.warning("Timeout while submitting to MSA server. Retrying...")
+        res = requests.post(f'{host_url}/{submission_endpoint}', data={'q':query,'mode': mode}, timeout=12.02)
+        try:
+          out = res.json()
+          return out
+        except ValueError:
+          if "Bad Gateway" in res.text:
+            logger.info("Waiting for server startup")
+            time.sleep(10)
+            continue
+          logger.error(f"Server didn't reply with json: {res.text}")
+          out = {"status":"ERROR"}
+          return out
+      except (requests.exceptions.Timeout, requests.exceptions.ConnectionError, requests.exceptions.HTTPError) as e:
+        logger.warning("Waiting for server startup")
         continue
-      break
-
-    try:
-      out = res.json()
-    except ValueError:
-      logger.error(f"Server didn't reply with json: {res.text}")
-      out = {"status":"ERROR"}
-    return out
 
   def status(ID):
     while True:

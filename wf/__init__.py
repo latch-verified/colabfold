@@ -110,6 +110,7 @@ def mine_inference_amber(
                         "body": "The GPU ran out of memory. Please try again with a smaller input or use AlphaFold2.",
                     },
                 )
+                print(realtime_output.strip(), flush=True)
                 raise RuntimeError("The GPU ran out of memory.")
             if "MMseqs2 API is giving errors" in realtime_output:
                 message(
@@ -119,6 +120,7 @@ def mine_inference_amber(
                         "body": "The MMseqs2 API is giving errors. Please contact support@latch.bio or message us via the chat in the bottom of the left sidebar.",
                     },
                 )
+                print(realtime_output.strip(), flush=True)
                 raise RuntimeError("The MMseqs2 API is giving errors.")
             if "Could not get MSA/templates" in realtime_output:
                 message(
@@ -128,6 +130,7 @@ def mine_inference_amber(
                         "body": "Failed to parse results from MMseqs2. Please contact support@latch.bio or message us via the chat in the bottom of the left sidebar.",
                     },
                 )
+                print(realtime_output.strip(), flush=True)
                 raise RuntimeError("MMseqs2 Results Parsing Error")
             if "Could not generate input features" in realtime_output:
                 message(
@@ -137,6 +140,7 @@ def mine_inference_amber(
                         "body": "No candidates found for sequence. Please contact support@latch.bio or message us via the chat in the bottom of the left sidebar.",
                     },
                 )
+                print(realtime_output.strip(), flush=True)
                 raise RuntimeError("Could not generate input features")
 
             print(realtime_output.strip(), flush=True)
