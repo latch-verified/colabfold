@@ -7,6 +7,8 @@ from flytekit.core.annotation import FlyteAnnotation
 from latch import large_gpu_task, message, workflow
 from latch.resources.launch_plan import LaunchPlan
 from latch.types import LatchDir, LatchFile
+import shutil
+import os
 
 
 def _fmt_dir(bucket_path: str) -> str:
@@ -166,13 +168,24 @@ def mine_inference_amber(
     if retval != 0:
         raise Exception(f"colabfold_batch failed with exit code {retval}")
 
+    cleaned_output_dir = Path("/root/cleaned_preds")
+    pdb_dir = cleaned_output_dir / "pdb results"
+    junk_dir = cleaned_output_dir / "other"
+    cleaned_output_dir.mkdir(parents=True, exist_ok=True)
+    pdb_dir.mkdir(parents=True, exist_ok=True)
+
+    for file in local_output.glob("*.pdb"):
+        shutil.move(file, pdb_dir)
+
+    shutil.move(local_output, junk_dir)
+
     if output_dir is not None:
         latch_out_location = _fmt_dir(output_dir.remote_source) + f"/{run_name}"
     else:
         latch_out_location = f"latch:///ColabFold Outputs/{run_name}"
 
     return LatchDir(
-        path=str((local_output).resolve()),
+        path=str((cleaned_output_dir).resolve()),
         remote_path=latch_out_location,
     )
 
@@ -207,8 +220,8 @@ def colabfold_mmseqs2_wf(
                     },
                     "rules": [
                         {
-                            "regex": "^(>[^\n]+\n[A-Z]+(:[A-Z]+)*)(\n>.+\n[A-Z]+(:[A-Z]+)*)*$|([A-Z]+(:[A-Z]+)*)(\n[A-Z]+(:[A-Z]+)*)*$",
-                            "message": "Must be a list of named amino acid sequences, each formatted over two lines. The name line must start with `>` and the sequence line can only contain capital letters. For folding multimers, separate sequences under a single header with colons",
+                            "regex": "^((>[^\n]+\n[A-Z]+(:[A-Z]+)*)(\n>.+\n[A-Z]+(:[A-Z]+)*)*|([A-Z]+(:[A-Z]+)*)(\n[A-Z]+(:[A-Z]+)*)*)$",
+                            "message": "Error: provide a list of named amino acid sequences, each formatted over two lines. If names are not inputted, the names sequence_1, sequence_2, etc will be provided. Ensure that there are no spaces or newlines in a single sequence. The name line must start with `>` and the sequence line can only contain capital letters. For folding multimers, separate sequences using a colon.",
                         }
                     ],
                 }
