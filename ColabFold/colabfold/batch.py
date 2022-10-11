@@ -1184,14 +1184,14 @@ def run(
     use_templates: bool = False,
     custom_template_path: str = None,
     use_amber: bool = False,
-    keep_existing_results: bool = True,
+    keep_existing_results: bool = False,
     rank_by: str = "auto",
     pair_mode: str = "unpaired+paired",
     data_dir: Union[str, Path] = default_data_dir,
     host_url: str = DEFAULT_API_SERVER,
     random_seed: int = 0,
     stop_at_score: float = 100,
-    recompile_padding: float = 1.1,
+    recompile_padding: float = 1.0,
     recompile_all_models: bool = False,
     zip_results: bool = False,
     prediction_callback: Callable[[Any, Any, Any, Any, Any], Any] = None,
@@ -1556,7 +1556,7 @@ def main():
     parser.add_argument(
         "--recompile-padding",
         type=float,
-        default=1.1,
+        default=1.0,
         help="Whenever the input length changes, the model needs to be recompiled, which is slow. "
         "We pad sequences by this factor, so we can e.g. compute sequence from length 100 to 110 without recompiling. "
         "The prediction will become marginally slower for the longer input, "
