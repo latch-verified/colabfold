@@ -408,7 +408,7 @@ def colabfold_mmseqs2_wf(
                 display_name: Number of Models
 
         nrof_recycles:
-            Number of prediction cycles.Increasing recycles can improve the quality but slows down the prediction.
+            Number of prediction cycles. Increasing recycles can improve the quality but slows down the prediction.
 
             __metadata__:
                 display_name: Number of Prediction Cycles
