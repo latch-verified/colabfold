@@ -8,8 +8,6 @@ from latch import large_gpu_task, message, workflow
 from latch.resources.launch_plan import LaunchPlan
 from latch.types import LatchDir, LatchFile
 import shutil
-import os
-
 
 def _fmt_dir(bucket_path: str) -> str:
     if bucket_path[-1] == "/":
@@ -17,22 +15,53 @@ def _fmt_dir(bucket_path: str) -> str:
     return bucket_path
 
 
-class NROFModels(Enum):
-    one = "1"
-    two = "2"
-    three = "3"
-    four = "4"
-    five = "5"
-
-
 @large_gpu_task
 def mine_inference_amber(
     fasta_file: Optional[LatchFile],
     aa_sequence: Optional[str],
     run_name: str,
-    nrof_models: NROFModels,
+    nrof_models: int,
     output_dir: Optional[LatchDir],
+    nrof_recycles: int,
 ) -> LatchDir:
+
+    if nrof_models < 1:
+        message(
+            "warning",
+            {
+                "title": f"Invalid Input",
+                "body": "Number of models below 1. Setting to 1",
+            },
+        )
+        nrof_models = 1
+    if nrof_models > 5:
+        message(
+            "warning",
+            {
+                "title": f"Invalid Input",
+                "body": "Number of models greater than 5. Setting to 5",
+            },
+        )
+        nrof_models = 5
+    
+    if nrof_recycles < 1:
+        message(
+            "warning",
+            {
+                "title": f"Invalid Input",
+                "body": "Number of recycles below 1. Setting to 1",
+            },
+        )
+        nrof_recycles = 1
+    if nrof_recycles > 50:
+        message(
+            "warning",
+            {
+                "title": f"Invalid Input",
+                "body": "Number of recycles greater than 50. Setting to 50",
+            },
+        )
+        nrof_recycles = 50
 
     print("Organizing data", flush=True)
     input_path = Path("/sequence.fasta")
@@ -99,7 +128,9 @@ def mine_inference_amber(
         "--amber",
         "--use-gpu-relax",
         "--num-models",
-        str(nrof_models.value),
+        str(nrof_models),
+        "--num-recycle",
+        str(nrof_recycles),
         "--data",
         "/root/data",
         "--host-url",
@@ -229,7 +260,8 @@ def colabfold_mmseqs2_wf(
         ]
     ] = None,
     custom_output_dir: Optional[LatchDir] = None,
-    nrof_models: NROFModels = NROFModels.one,
+    nrof_models: int = 1,
+    nrof_recycles: int = 3,
     run_name: str = "run1",
 ) -> LatchDir:
     """The ColabFold version of AlphaFold2 is optimized for extremely fast predictions on small proteins. It uses the same basic architecture as AlphaFold2, but optimizes the sequence search procedure.
@@ -312,6 +344,7 @@ def colabfold_mmseqs2_wf(
           flow:
             - params:
                 - nrof_models
+                - nrof_recycles
 
         - section: Output Settings
           flow:
@@ -369,11 +402,16 @@ def colabfold_mmseqs2_wf(
                 display_name: Run Name
 
         nrof_models:
-            Number of models to use (default: 1). Each uses weights trained using a different random seed.
+            Number of models to use (default: 1). Each uses weights trained using a different random seed. The maximum number of models is 5.
 
             __metadata__:
                 display_name: Number of Models
 
+        nrof_recycles:
+            Number of prediction cycles.Increasing recycles can improve the quality but slows down the prediction.
+
+            __metadata__:
+                display_name: Number of Prediction Cycles
     """
 
     return mine_inference_amber(
@@ -382,6 +420,7 @@ def colabfold_mmseqs2_wf(
         nrof_models=nrof_models,
         run_name=run_name,
         output_dir=custom_output_dir,
+        nrof_recycles=nrof_recycles
     )
 
 
