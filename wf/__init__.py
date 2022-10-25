@@ -1,13 +1,18 @@
 import subprocess
 from enum import Enum
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated, Optional, List
 
 from flytekit.core.annotation import FlyteAnnotation
 from latch import large_gpu_task, message, workflow
 from latch.resources.launch_plan import LaunchPlan
 from latch.types import LatchDir, LatchFile
 import shutil
+from dataclasses import dataclass
+from dataclasses_json import dataclass_json
+import string
+import re
+
 
 def _fmt_dir(bucket_path: str) -> str:
     if bucket_path[-1] == "/":
@@ -15,10 +20,34 @@ def _fmt_dir(bucket_path: str) -> str:
     return bucket_path
 
 
+@dataclass_json
+@dataclass
+class AAChain:
+    name: str
+    amino_acids: Annotated[
+        str,
+        FlyteAnnotation(
+            {
+                "display_name": "Amino Acid Chain",
+                "appearance": {
+                    "placeholder": "LESPNCDWKNNR...",
+                },
+                "rules": [
+                    {
+                        "regex": "^[a-zA-Z].{17,}$",
+                        "message": "Does not match 16 or more amino acid single letter codes.",
+                    }
+                ],
+            }
+        ),
+    ]
+
+whitespace_regex = re.compile(r"\s", re.UNICODE)
+
 @large_gpu_task
 def mine_inference_amber(
     fasta_file: Optional[LatchFile],
-    aa_sequence: Optional[str],
+    aa_sequences: Optional[List[List[AAChain]]],
     run_name: str,
     nrof_models: int,
     output_dir: Optional[LatchDir],
@@ -43,7 +72,7 @@ def mine_inference_amber(
             },
         )
         nrof_models = 5
-    
+
     if nrof_recycles < 1:
         message(
             "warning",
@@ -64,56 +93,105 @@ def mine_inference_amber(
         nrof_recycles = 50
 
     print("Organizing data", flush=True)
-    input_path = Path("/sequence.fasta")
+    input_path = Path("/root/sequence.fasta")
     if fasta_file is not None:
         with open(Path(fasta_file), "r") as f:
             with open(input_path, "w") as out:
                 for line in f:
-                    if line.strip() != "":
-                        out.write(f"{line.strip()}\n")
+                    line = line.strip()
+                    if line == "":
+                        continue
+
+                    if line.startswith(">"):
+                        out.write(f"{line}\n")
+                        continue
+
+                    cleaned_amino_acids = whitespace_regex.sub("", line)
+
+                    allowed = set(string.ascii_lowercase)
+                    chains = cleaned_amino_acids.split(":")
+                    for chain in chains:
+                        if not set(chain.lower()) <= allowed:
+                            message(
+                                "error",
+                                {
+                                    "header": "Invalid amino acid codes in input sequence.",
+                                    "body": f"Only single letter codes are allowed. Found: {set(chain.lower()) - allowed}",
+                                },
+                            )
+                            raise ValueError(
+                                f"Invalid amino acid codes in input sequence. Found: {set(chain.lower()) - allowed}"
+                            )
+
+                        if len(chain) < 16:
+                            message(
+                                "error",
+                                {
+                                    "header": "Input chain is too short. Please provide at least 16 amino acids.",
+                                    "body": f"Input chain {chain} contains {len(chain)} amino acids",
+                                },
+                            )
+                            raise ValueError(
+                                f"Input chain is too short: {len(chain)}/16 amino acids"
+                            )
+
+                    out.write(f"{cleaned_amino_acids}\n")
     else:
-        if aa_sequence is None:
+        if aa_sequences is None:
             raise ValueError(
-                "Invariant violation: either fasta_file or aa_sequence must be provided"
+                "Invariant violation: either fasta_file or aa_sequences must be provided"
+            )
+
+        if len(aa_sequences) == 0:
+            raise ValueError(
+                "Invariant violation: aa_sequences must not be empty when selected"
             )
 
         with input_path.open("w") as f:
-            broken = aa_sequence.split("\n")
-            broken = [x for x in broken if x.strip() != ""]
-            for l in broken:
-                if " " in l and not l.startswith(">"):
-                    message(
-                        "error", "Spaces in input sequence are not allowed. Please format multimers using colon separation."
-                    )
-                    raise ValueError("Spaces in fasta file are not allowed.")
-            if broken[0].startswith(">"):
-                f.write("\n".join(broken))
-            else:
-                for i, line in enumerate(broken):
-                    f.write(f">sequence_{i}\n{line}\n")
+            for protein in aa_sequences:
+                names: List[str] = []
+                chains: List[str] = []
+                for i, chain in enumerate(protein):
+                    if chain.name is None:
+                        names.append(f"Chain_{i}")
+                    else:
+                        names.append(f"{chain.name}")
+
+                    cleaned_amino_acids = whitespace_regex.sub("", chain.amino_acids)
+
+                    allowed = set(string.ascii_lowercase)
+                    if not set(cleaned_amino_acids.lower()) <= allowed:
+                        message(
+                            "error",
+                            {
+                                "header": "Invalid amino acid codes in input sequence.",
+                                "body": f"Only single letter codes are allowed. Found: {set(cleaned_amino_acids.lower()) - allowed}",
+                            },
+                        )
+                        raise ValueError(
+                            f"Invalid amino acid codes in input sequence. Found: {set(cleaned_amino_acids.lower()) - allowed}"
+                        )
+
+                    if len(cleaned_amino_acids) < 16:
+                        message(
+                            "error",
+                            {
+                                "header": "Input chain is too short. Please provide at least 16 amino acids.",
+                                "body": f"Input chain {chain} contains {len(cleaned_amino_acids)} amino acids",
+                            },
+                        )
+                        raise ValueError(
+                            f"Input chain is too short: {len(cleaned_amino_acids)}/16 amino acids"
+                        )
+                    chains.append(cleaned_amino_acids)
+
+                protein_name = f">{'_'.join(names)}"
+                protein_chains = ":".join(chains)
+                f.write(f"{protein_name}\n")
+                f.write(f"{protein_chains}\n")
 
     with input_path.open("r") as f:
-        nrof_lines = sum(1 for _ in f)
-        if nrof_lines == 0:
-            message(
-                "error",
-                {
-                    "title": f"Empty Input",
-                    "body": "No sequences were found in the input.",
-                },
-            )
-            raise RuntimeError("No sequences were found in the input.")
-        if nrof_lines % 2 != 0:
-            message(
-                "error",
-                {
-                    "title": f"Invalid Input",
-                    "body": "Input contains an odd number of lines indicating an unpaired line",
-                },
-            )
-            raise RuntimeError(
-                "Input contains an odd number of lines indicating an unpaired line"
-            )
+        print(f.read(), flush=True)
 
     local_output = Path("/root/preds")
     local_output.mkdir(parents=True, exist_ok=True)
@@ -240,21 +318,19 @@ def colabfold_mmseqs2_wf(
             ),
         ]
     ] = None,
-    aa_sequence: Optional[
+    aa_sequences: Optional[
         Annotated[
-            str,
+            List[
+                Annotated[
+                    List[AAChain],
+                    FlyteAnnotation({"appearance": {"add_button_title": "Add Chain"}}),
+                ]
+            ],
             FlyteAnnotation(
                 {
                     "appearance": {
-                        "type": "paragraph",
-                        "placeholder": ">SequenceOne\nLESPNCDWKNNR:RLENKNNCSPDW:CDWKNNENPDEA",
+                        "add_button_title": "Add Protein",
                     },
-                    "rules": [
-                        {
-                            "regex": "^((>[^\n]+\n[A-Z]+(:[A-Z]+)*)(\n>.+\n[A-Z]+(:[A-Z]+)*)*|([A-Z]+(:[A-Z]+)*)(\n[A-Z]+(:[A-Z]+)*)*)$",
-                            "message": "Error: provide a list of named amino acid sequences, each formatted over two lines. If names are not inputted, the names sequence_1, sequence_2, etc will be provided. Ensure that there are no spaces or newlines in a single sequence. The name line must start with `>` and the sequence line can only contain capital letters. For folding multimers, separate sequences using a colon.",
-                        }
-                    ],
                 }
             ),
         ]
@@ -314,29 +390,31 @@ def colabfold_mmseqs2_wf(
             id: Apache-2.0
         batched_template_url: https://latch-public.s3.us-west-2.amazonaws.com/batched_templates/AlphaFold_BatchedTemplateUpdate4.csv
         flow:
-        - section: Amino Acid Sequence
+        - section: Protein Sequence
           flow:
-            - text: >-
-                Enter the file containing the amino acid sequence (or sequences) you wish to fold. Alternatively,
-                you can enter the amino acid sequence directly. Each line of the input fasta represents a single
-                protein to be folded. The header line must start with `>` and the sequence line can only contain
-                capital letters. Or, the header line can be entirely omitted in which case the entires will be
-                labelled by index. For folding multimers, separate sequences under a single header with colon.
-                For example, `MTA...ANH:CDW...RMA:ESP...CDW` would represent a multimer with three chains.
             - fork: input_sequence_fork
               flows:
                 text:
-                    display_name: Text
+                    display_name: Amino Acids
                     _tmp_unwrap_optionals:
-                        - aa_sequence
+                        - aa_sequences
                     flow:
+                        - text: >-
+                            Colabfold can be run on a single protein or multiple proteins. Each protein is broken up into a list of chains for ease of use.
+                            For each protein, enter each amino acid chain in the sequence in a separate cell. If the protein contains one amino acid chain it will be folded
+                            as a monomer. Otherwise, it will be folded as a multimer. The name of each chain will be reflected in the output.
                         - params:
-                            - aa_sequence
+                            - aa_sequences
                 file:
                     display_name: File
                     _tmp_unwrap_optionals:
                         - fasta_file
                     flow:
+                        - text: >-
+                            Enter the file containing the protein(s) you wish to fold. The format is a fasta file, where each protein is a new entry
+                            in the file, and each amino acid chain of the protein complex is on the same line, separated by colons. The header lines in the fasta
+                            file are the names of the proteins. The format is extremely strict and the workflow will fail unless it is adhered to. Examples can be found
+                            [here](https://github.com/latch-verified/colabfold).
                         - params:
                             - fasta_file
 
@@ -372,16 +450,13 @@ def colabfold_mmseqs2_wf(
             __metadata__:
                 display_name: FASTA File
 
-        aa_sequence:
+        aa_sequences:
             Amino acid sequence.
 
             __metadata__:
-                display_name: Amino Acid Sequence(s)
+                display_name: Protein(s)
 
         input_sequence_fork:
-
-            __metadata__:
-                display_name: Input Sequence
 
         output_location_fork:
 
@@ -416,11 +491,11 @@ def colabfold_mmseqs2_wf(
 
     return mine_inference_amber(
         fasta_file=fasta_file,
-        aa_sequence=aa_sequence,
+        aa_sequences=aa_sequences,
         nrof_models=nrof_models,
         run_name=run_name,
         output_dir=custom_output_dir,
-        nrof_recycles=nrof_recycles
+        nrof_recycles=nrof_recycles,
     )
 
 
@@ -428,7 +503,14 @@ LaunchPlan(
     colabfold_mmseqs2_wf,
     "Monomer",
     {
-        "aa_sequence": ">TEST_SEQUENCE\nMTANHLESPNCDWKNNRMAIVHMVNVTPLRMMEEPRAAVEAAFEGIMEPAVVGDMVEYWNKMISTCCNYYQMGSSRSHLEEKAQMVDRFWFCPCIYYASGKWRNMFLNILHVWGHHHYPRNDLKPCSYLSCKLPDLRIFFNHMQTCCHFVTLLFLTEWPTYMIYNSVDLCPMTIPRRNTCRTMTEVSSWCEPAIPEWWQATVKGGWMSTHTKFCWYPVLDPHHEYAESKMDTYGQCKKGGMVRCYKHKQQVWGNNHNESKAPCDDQPTYLCPPGEVYKGDHISKREAENMTNAWLGEDTHNFMEIMHCTAKMASTHFGSTTIYWAWGGHVRPAATWRVYPMIQEGSHCQC",
+        "aa_sequences": [
+            [
+                AAChain(
+                    name="Chain_1",
+                    amino_acids="MTANHLESPNCDWKNNRMAIVHMVNVTPLRMMEEPRAAVEAAFEGIMEPAVVGDMVEYWNKMISTCCNYYQMGSSRSHLEEKAQMVDRFWFCPCIYYASGKWRNMFLNILHVWGHHHYPRNDLKPCSYLSCKLPDLRIFFNHMQTCCHFVTLLFLTEWPTYMIYNSVDLCPMTIPRRNTCRTMTEVSSWCEPAIPEWWQATVKGGWMSTHTKFCWYPVLDPHHEYAESKMDTYGQCKKGGMVRCYKHKQQVWGNNHNESKAPCDDQPTYLCPPGEVYKGDHISKREAENMTNAWLGEDTHNFMEIMHCTAKMASTHFGSTTIYWAWGGHVRPAATWRVYPMIQEGSHCQC",
+                )
+            ]
+        ],
         "run_name": "test_monomer",
     },
 )
@@ -437,7 +519,22 @@ LaunchPlan(
     colabfold_mmseqs2_wf,
     "Multimer",
     {
-        "aa_sequence": ">Two_Chain\nMAVKISGVLKDGTGKPVQNCATIQLKARRNSTTVVVNTVGSENPDEAGRYSMDVEYGQYSVILQVDGFPPSHAGTITVYEDSQPGTLNDFLCAMTEDDARPEVLRRLELMVEEVARNASVVAQSTADAKKSAGDASASAAQVAALVTDATDSARAASTSAGQAASSAQEASSGAEAASAKATEAEKSAAAAESSKNAAATSAGAAKTSETNAAASQQSAATSASTAATKASEAATSARDAVASKEAAKSSETNASSSAGRAASSATAAENSARAAKTSETNARSSETAAERSASAAADAKTAAAGSASTASTKATEAAGSAVSASQSKSAAEAAAIRAKNSAKRAEDIASAVALEDADTTRKGIVQLSSATNSTSETLAATPKAVKVVMDETNRKAPLDSPALTGTPTAPTALRGTNNTQIANTAFVLAAIADVIDASPDALNTLNELAAALGNDPDFATTMTNALAGKQPKNATLTALAGLSTAKNKLPYFAENDAASLTELTQVGRDILAKNSVADVLEYLGAGENSAFPAGAPIPWPSDIVPSGYVLMQGQAFDKSAYPKLAVAYPSGVLPDMRGWTIKGKPASGRAVLSQEQDGIKSHTHSASASGTDLGTKTTSSFDYGTKTTGSFDYGTKSTNNTGAHAHSLSGSTGAAGAHAHTSGLRMNSSGWSQYGTATITGSLSTVKGTSTQGIAYLSKTDSQGSHSHSLSGTAVSAGAHAHTVGIGAHQHPVVIGAHAHSFSIGSHGHTITVNAAGNAENTVKNIAFNYIVRLA:MAVKISGVLKDGTGKPVQNCTIQLKARRNSTTVVVNTVGSENPDEAGRYSMDVEYGQYSVILQVDGFPPSHAGTITVYEDSQPGTLNDFLCAMTEDDARPEVLRRLELMVEEVARNASVVAQSTADAKKSAGDASASAAQVAALVTDATDSARAASTSAGQAASSAQEASSGAEAASAKATEAEKSAAAAESSKNAAATSAGAAKTSETNAAASQQSAATSASTAATKASEAATSARDAVASKEAAKSSETNASSSAGRAASSATAAENSARAAKTSETNARSSETAAERSASAAADAKTAAAGSASTASTKATEAAGSAVSASQSKSAAEAAAIRAKNSAKRAEDIASAVALEDADTTRKGIVQLSSATNSTSETLAATPKAVKVVMDETNRKAPLDSPALTGTPTAPTALRGTNNTQIANTAFVLAAIADVIDASPDALNTLNELAAALGNDPDFATTMTNALAGKQPKNATLTALAGLSTAKNKLPYFAENDAASLTELTQVGRDILAKNSVADVLEYLGAGENSAFPAGAPIPWPSDIVPSGYVLMQGQAFDKSAYPKLAVAYPSGVLPDMRGWTIKGKPASGRAVLSQEQDGIKSHTHSASASGTDLGTKTTSSFDYGTKTTGSFDYGTKSTNNTGAHAHSLSGSTGAAGAHAHTSGLRMNSSGWSQYGTATITGSLSTVKGTSTQGIAYLSKTDSQGSHSHSLSGTAVSAGAHAHTVGIGAHQHPVVIGAHAHSFSIGSHGHTITVNAAGNAENTVKNIAFNYIVRLA:MAVKISGVLKDGTGKPVQNCTIQLKARRNSTTVVVNTVGSENPDEAGRYSMDVEYGQYSVILQVDGFPPSHAGTITVYEDSQPGTLNDFLCAMTEDDARPEVLRRLELMVEEVARNASVVAQSTADAKKSAGDASASAAQVAALVTDATDSARAASTSAGQAASSAQEASSGAEAASAKATEAEKSAAAAESSKNAAATSAGAAKTSETNAAASQQSAATSASTAATKASEAATSARDAVASKEAAKSSETNASSSAGRAASSATAAENSARAAKTSETNARSSETAAERSASAAADAKTAAAGSASTASTKATEAAGSAVSASQSKSAAEAAAIRAKNSAKRAEDIASAVALEDADTTRKGIVQLSSATNSTSETLAATPKAVKVVMDETNRKAPLDSPALTGTPTAPTALRGTNNTQIANTAFVLAAIADVIDASPDALNTLNELAAALGNDPDFATTMTNALAGKQPKNATLTALAGLSTAKNKLPYFAENDAASLTELTQVGRDILAKNSVADVLEYLGAGENSAFPAGAPIPWPSDIVPSGYVLMQGQAFDKSAYPKLAVAYPSGVLPDMRGWTIKGKPASGRAVLSQEQDGIKSHTHSASASGTDLGTKTTSSFDYGTKTTGSFDYGTKSTNNTGAHAHSLSGSTGAAGAHAHTSGLRMNSSGWSQYGTATITGSLSTVKGTSTQGIAYLSKTDSQGSHSHSLSGTAVSAGAHAHTVGIGAHQHPVVIGAHAHSFSIGSHGHTITVNAAGNAENTVKNIAFNYIVRLA",
+        "aa_sequences": [
+            [
+                AAChain(
+                    name="Chain_1",
+                    amino_acids="MAVKISGVLKDGTGKPVQNCTIQLKARRNSTTVVVNTVGSENPDEAGRYSMDVEYGQYSVILQVDGFPPSHAGTITVYEDSQPGTLNDFLCAMTEDDARPEVLRRLELMVEEVARNASVVAQSTADAKKSAGD",
+                ),
+                AAChain(
+                    name="Chain_2",
+                    amino_acids="MAVKISGVLKDGTGKPVQNVVYGTKSTNNTGAHAHSLSGSTGAAGAHAHTSGLRMNSSGWSQYGTATITGSLSTVKGTSTQGIAYLNAENTVKNIAFNYIVRLA",
+                ),
+                AAChain(
+                    name="Chain_3",
+                    amino_acids="MAVKISGVLKDGTGKPVQNCTIQLKARRNSTTVVVNTVGSENPDEAGRYSMDVEYGQRLA",
+                ),
+            ]
+        ],
         "run_name": "test_multimer",
     },
 )
