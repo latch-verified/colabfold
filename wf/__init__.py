@@ -23,6 +23,7 @@ def mine_inference_amber(
     nrof_models: int,
     output_dir: Optional[LatchDir],
     nrof_recycles: int,
+    template_dir: Optional[LatchDir],
 ) -> LatchDir:
 
     if nrof_models < 1:
@@ -136,6 +137,10 @@ def mine_inference_amber(
         "--host-url",
         "http://ec2-52-38-163-139.us-west-2.compute.amazonaws.com:80/api",
     ]
+
+    if template_dir is not None:
+        local_template_dir = Path(template_dir)
+        command.extend(["--template-dir", "--custom-template-path", str(local_template_dir)])
 
     command = " ".join(command)
     process = subprocess.Popen(
@@ -262,6 +267,7 @@ def colabfold_mmseqs2_wf(
     custom_output_dir: Optional[LatchDir] = None,
     nrof_models: int = 1,
     nrof_recycles: int = 3,
+    template_dir: Optional[LatchDir] = None,
     run_name: str = "run1",
 ) -> LatchDir:
     """The ColabFold version of AlphaFold2 is optimized for extremely fast predictions on small proteins. It uses the same basic architecture as AlphaFold2, but optimizes the sequence search procedure.
@@ -345,6 +351,7 @@ def colabfold_mmseqs2_wf(
             - params:
                 - nrof_models
                 - nrof_recycles
+                - template_dir
 
         - section: Output Settings
           flow:
@@ -420,7 +427,8 @@ def colabfold_mmseqs2_wf(
         nrof_models=nrof_models,
         run_name=run_name,
         output_dir=custom_output_dir,
-        nrof_recycles=nrof_recycles
+        nrof_recycles=nrof_recycles,
+        template_dir=template_dir,
     )
 
 
