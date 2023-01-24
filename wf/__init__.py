@@ -419,6 +419,12 @@ def colabfold_mmseqs2_wf(
 
             __metadata__:
                 display_name: Number of Prediction Cycles
+
+        template_dir:
+            Directory with pdb files to be used as templates for the inference.
+
+            __metadata__:
+                display_name: Template Directory
     """
 
     return mine_inference_amber(
