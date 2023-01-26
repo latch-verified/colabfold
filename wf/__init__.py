@@ -1,4 +1,6 @@
+import shutil
 import subprocess
+import time
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, Optional
@@ -7,7 +9,7 @@ from flytekit.core.annotation import FlyteAnnotation
 from latch import large_gpu_task, message, workflow
 from latch.resources.launch_plan import LaunchPlan
 from latch.types import LatchDir, LatchFile
-import shutil
+
 
 def _fmt_dir(bucket_path: str) -> str:
     if bucket_path[-1] == "/":
@@ -44,7 +46,7 @@ def mine_inference_amber(
             },
         )
         nrof_models = 5
-    
+
     if nrof_recycles < 1:
         message(
             "warning",
@@ -84,7 +86,8 @@ def mine_inference_amber(
             for l in broken:
                 if " " in l and not l.startswith(">"):
                     message(
-                        "error", "Spaces in input sequence are not allowed. Please format multimers using colon separation."
+                        "error",
+                        "Spaces in input sequence are not allowed. Please format multimers using colon separation.",
                     )
                     raise ValueError("Spaces in fasta file are not allowed.")
             if broken[0].startswith(">"):
@@ -140,23 +143,29 @@ def mine_inference_amber(
 
     if template_dir is not None:
         local_template_dir = Path(template_dir)
-        command.extend(["--template-dir", "--custom-template-path", str(local_template_dir)])
+        command.extend(
+            ["--templates", "--custom-template-path", str(local_template_dir)]
+        )
+        print(f"Path to templates: {str(local_template_dir)}", flush=True)
 
     command = " ".join(command)
     process = subprocess.Popen(
         command,
         shell=True,
-        errors="replace",
-        encoding="utf-8",
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
     )
+
+    failed = False
     while True:
-        realtime_output = process.stdout.readline()
+        if process.stdout is None:
+            break
+
+        realtime_output = process.stdout.readline().decode("utf-8").strip()
 
         if realtime_output == "" and process.poll() is not None:
             break
+
         if realtime_output:
+            failed = True
             if "RESOURCE_EXHAUSTED" in realtime_output:
                 message(
                     "error",
@@ -165,9 +174,7 @@ def mine_inference_amber(
                         "body": "The GPU ran out of memory. Please try again with a smaller input or use AlphaFold2.",
                     },
                 )
-                print(realtime_output.strip(), flush=True)
-                raise RuntimeError("The GPU ran out of memory.")
-            if "MMseqs2 API is giving errors" in realtime_output:
+            elif "MMseqs2 API is giving errors" in realtime_output:
                 message(
                     "error",
                     {
@@ -175,9 +182,7 @@ def mine_inference_amber(
                         "body": "The MMseqs2 API is giving errors. Please contact support@latch.bio or message us via the chat in the bottom of the left sidebar.",
                     },
                 )
-                print(realtime_output.strip(), flush=True)
-                raise RuntimeError("The MMseqs2 API is giving errors.")
-            if "Could not get MSA/templates" in realtime_output:
+            elif "Could not get MSA/templates" in realtime_output:
                 message(
                     "error",
                     {
@@ -185,9 +190,7 @@ def mine_inference_amber(
                         "body": "Failed to parse results from MMseqs2. Please contact support@latch.bio or message us via the chat in the bottom of the left sidebar.",
                     },
                 )
-                print(realtime_output.strip(), flush=True)
-                raise RuntimeError("MMseqs2 Results Parsing Error")
-            if "Could not generate input features" in realtime_output:
+            elif "Could not generate input features" in realtime_output:
                 message(
                     "error",
                     {
@@ -195,14 +198,14 @@ def mine_inference_amber(
                         "body": "No candidates found for sequence. Please contact support@latch.bio or message us via the chat in the bottom of the left sidebar.",
                     },
                 )
-                print(realtime_output.strip(), flush=True)
-                raise RuntimeError("Could not generate input features")
+            else:
+                failed = False
 
-            print(realtime_output.strip(), flush=True)
+    _, error = process.communicate()
 
     retval = process.poll()
-    if retval != 0:
-        raise Exception(f"colabfold_batch failed with exit code {retval}")
+    if retval != 0 or failed or error is not None:
+        raise RuntimeError(f"colabfold_batch failed with error {error}")
 
     cleaned_output_dir = Path("/root/cleaned_preds")
     pdb_dir = cleaned_output_dir / "pdb results"
@@ -421,7 +424,7 @@ def colabfold_mmseqs2_wf(
                 display_name: Number of Prediction Cycles
 
         template_dir:
-            Directory with pdb files to be used as templates for the inference.
+            Directory with custom pdb files to be used as templates for the inference.
 
             __metadata__:
                 display_name: Template Directory

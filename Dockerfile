@@ -41,7 +41,8 @@ RUN pip install alphafold-colabfold
 RUN pip install --upgrade "jax[cuda]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 RUN pip install --upgrade jaxlib
 RUN conda install -c conda-forge -c bioconda kalign2=2.04 hhsuite=3.3.0 openmm=7.5.1 pdbfixer numpy=1.22.4
-RUN pip install --upgrade matplotlib
+
+RUN pip install --upgrade latch
 COPY ColabFold /root/ColabFold
 RUN pip install -e /root/ColabFold
 
@@ -49,8 +50,6 @@ ENV PATH="/root/MMseqs2/build/bin:/root/miniconda3/envs/alphafold/bin:/root/mini
 
 RUN pip uninstall protobuf -y
 RUN pip install --no-binary protobuf protobuf
-
-RUN pip install --upgrade latch
 
 ENV TF_FORCE_UNIFIED_MEMORY="1"
 ENV XLA_PYTHON_CLIENT_MEM_FRACTION="4.0"

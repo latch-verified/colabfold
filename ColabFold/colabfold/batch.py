@@ -161,9 +161,11 @@ def mk_template(
 
     hhsearch_result = hhsearch_pdb70_runner.query(a3m_lines)
     hhsearch_hits = pipeline.parsers.parse_hhr(hhsearch_result)
+
     templates_result = template_featurizer.get_templates(
         query_sequence=query_sequence, hits=hhsearch_hits
     )
+
     return dict(templates_result.features)
 
 
@@ -760,49 +762,6 @@ def get_msa_and_templates(
         seq_idx = query_seqs_unique.index(seq)
         query_seqs_cardinality[seq_idx] += 1
 
-    template_features = []
-    if use_templates:
-        a3m_lines_mmseqs2, template_paths = run_mmseqs2(
-            query_seqs_unique,
-            str(result_dir.joinpath(jobname)),
-            use_env,
-            use_templates=True,
-            host_url=host_url,
-        )
-        if custom_template_path is not None:
-            template_paths = {}
-            for index in range(0, len(query_seqs_unique)):
-                template_paths[index] = custom_template_path
-        if template_paths is None:
-            logger.info("No template detected")
-            for index in range(0, len(query_seqs_unique)):
-                template_feature = mk_mock_template(query_seqs_unique[index])
-                template_features.append(template_feature)
-        else:
-            for index in range(0, len(query_seqs_unique)):
-                if template_paths[index] is not None:
-                    template_feature = mk_template(
-                        a3m_lines_mmseqs2[index],
-                        template_paths[index],
-                        query_seqs_unique[index],
-                    )
-                    if len(template_feature["template_domain_names"]) == 0:
-                        template_feature = mk_mock_template(query_seqs_unique[index])
-                        logger.info(f"Sequence {index} found no templates")
-                    else:
-                        logger.info(
-                            f"Sequence {index} found templates: {template_feature['template_domain_names'].astype(str).tolist()}"
-                        )
-                else:
-                    template_feature = mk_mock_template(query_seqs_unique[index])
-                    logger.info(f"Sequence {index} found no templates")
-
-                template_features.append(template_feature)
-    else:
-        for index in range(0, len(query_seqs_unique)):
-            template_feature = mk_mock_template(query_seqs_unique[index])
-            template_features.append(template_feature)
-
     if len(query_sequences) == 1:
         pair_mode = "none"
 
@@ -846,6 +805,42 @@ def get_msa_and_templates(
                 )
     else:
         paired_a3m_lines = None
+
+    template_features = []
+    if use_templates:
+        if custom_template_path is not None:
+            template_paths = {}
+            for index in range(0, len(query_seqs_unique)):
+                template_paths[index] = custom_template_path
+        if template_paths is None:
+            logger.info("No template detected")
+            for index in range(0, len(query_seqs_unique)):
+                template_feature = mk_mock_template(query_seqs_unique[index])
+                template_features.append(template_feature)
+        else:
+            for index in range(0, len(query_seqs_unique)):
+                if template_paths[index] is not None and a3m_lines is not None:
+                    template_feature = mk_template(
+                        a3m_lines[index],
+                        template_paths[index],
+                        query_seqs_unique[index],
+                    )
+                    if len(template_feature["template_domain_names"]) == 0:
+                        template_feature = mk_mock_template(query_seqs_unique[index])
+                        logger.info(f"Sequence {index} found no templates")
+                    else:
+                        logger.info(
+                            f"Sequence {index} found templates: {template_feature['template_domain_names'].astype(str).tolist()}"
+                        )
+                else:
+                    template_feature = mk_mock_template(query_seqs_unique[index])
+                    logger.info(f"Sequence {index} found no templates")
+
+                template_features.append(template_feature)
+    else:
+        for index in range(0, len(query_seqs_unique)):
+            template_feature = mk_mock_template(query_seqs_unique[index])
+            template_features.append(template_feature)
 
     return (
         a3m_lines,
@@ -1342,8 +1337,8 @@ def run(
             )
             result_dir.joinpath(jobname + ".a3m").write_text(msa)
         except Exception as e:
-            logger.exception(f"Could not get MSA/templates for {jobname}: {e}")
-            continue
+            logger.exception(f"Could not get MSA/templates for {jobname}")
+            raise e
         try:
             (input_features, domain_names) = generate_input_feature(
                 query_seqs_unique,
@@ -1355,8 +1350,8 @@ def run(
                 model_type,
             )
         except Exception as e:
-            logger.exception(f"Could not generate input features {jobname}: {e}")
-            continue
+            logger.exception(f"Could not generate input features for {jobname}")
+            raise e
         try:
             query_sequence_len_array = [
                 len(query_seqs_unique[i])
@@ -1388,8 +1383,8 @@ def run(
             )
         except RuntimeError as e:
             # This normally happens on OOM. TODO: Filter for the specific OOM error message
-            logger.error(f"Could not predict {jobname}. Not Enough GPU memory? {e}")
-            continue
+            logger.error(f"Could not predict {jobname}. Not Enough GPU memory?")
+            raise e
 
         # Write representations if needed
 
@@ -1401,6 +1396,11 @@ def run(
                 model_id = i + 1
                 model_name = out["model_name"]
                 representations = out["representations"]
+
+                pae_file = result_dir.joinpath(
+                    f"{jobname}_unrelaxed_rank_{i + 1}_{outs[key]['model_name']}_predicted_aligned_error_v1.json"
+                )
+                pae_file.write_text(get_pae_json(out["pae"], out["max_pae"]))
 
                 if save_single_representations:
                     single_representation = np.asarray(representations["single"])
@@ -1416,11 +1416,6 @@ def run(
                     )
                     np.save(pair_filename, pair_representation)
 
-        # Write alphafold-db format (PAE)
-        alphafold_pae_file = result_dir.joinpath(
-            jobname + "_predicted_aligned_error_v1.json"
-        )
-        alphafold_pae_file.write_text(get_pae_json(outs[0]["pae"], outs[0]["max_pae"]))
         num_alignment = (
             int(input_features["num_alignments"])
             if model_type.startswith("AlphaFold2-multimer")
@@ -1451,7 +1446,6 @@ def run(
         result_files = [
             bibtex_file,
             config_out_file,
-            alphafold_pae_file,
             result_dir.joinpath(jobname + ".a3m"),
             pae_png,
             coverage_png,
@@ -1466,11 +1460,23 @@ def run(
             result_files.append(templates_file)
 
         for i, key in enumerate(model_rank):
+            out = outs[key]
+            pae_file = result_dir.joinpath(
+                f"{jobname}_unrelaxed_rank_{i + 1}_{outs[key]['model_name']}_predicted_aligned_error_v1.json"
+            )
+            pae_file.write_text(get_pae_json(out["pae"], out["max_pae"]))
+
+        for i, key in enumerate(model_rank):
+            result_files.append(
+                 result_dir.joinpath(f"{jobname}_unrelaxed_rank_{i + 1}_{outs[key]['model_name']}_predicted_aligned_error_v1.json")
+            )
+
             result_files.append(
                 result_dir.joinpath(
                     f"{jobname}_unrelaxed_rank_{i + 1}_{outs[key]['model_name']}.pdb"
                 )
             )
+
             result_files.append(
                 result_dir.joinpath(
                     f"{jobname}_unrelaxed_rank_{i + 1}_{outs[key]['model_name']}_scores.json"
