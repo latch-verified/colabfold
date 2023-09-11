@@ -1,4 +1,4 @@
-FROM 812206152185.dkr.ecr.us-west-2.amazonaws.com/latch-base-cuda:ca95-main
+FROM 812206152185.dkr.ecr.us-west-2.amazonaws.com/latch-base-cuda:9c8f-main
 
 # conda envs
 ENV CONDA_PREFIX="/root/miniconda3/envs/alphafold"

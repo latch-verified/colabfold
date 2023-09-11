@@ -4,7 +4,6 @@ from pathlib import Path
 
 import appdirs
 import tqdm
-import subprocess
 
 logger = logging.getLogger(__name__)
 
@@ -17,42 +16,44 @@ def download_alphafold_params(model_type: str, data_dir: Path = default_data_dir
     import requests
 
     params_dir = data_dir.joinpath("params")
-    if model_type == "AlphaFold2-multimer-v2":
-        weights_name = "alphafold_params_colab_2022-03-02.tar"
+    if model_type == "alphafold2_multimer_v3":
+        url = "https://storage.googleapis.com/alphafold/alphafold_params_colab_2022-12-06.tar"
         success_marker = params_dir.joinpath(
-            "download_complexes_multimer-v2_finished.txt"
+            "download_complexes_multimer_v3_finished.txt"
         )
-    elif model_type == "AlphaFold2-multimer-v1":
-        weights_name = "alphafold_params_colab_2021-10-27.tar"
+    elif model_type == "alphafold2_multimer_v2":
+        url = "https://storage.googleapis.com/alphafold/alphafold_params_colab_2022-03-02.tar"
         success_marker = params_dir.joinpath(
-            "download_complexes_multimer-v1_finished.txt"
+            "download_complexes_multimer_v2_finished.txt"
+        )
+    elif model_type == "alphafold2_multimer_v1":
+        url = "https://storage.googleapis.com/alphafold/alphafold_params_colab_2021-10-27.tar"
+        success_marker = params_dir.joinpath(
+            "download_complexes_multimer_v1_finished.txt"
         )
     else:
-        weights_name = "alphafold_params_2021-07-14.tar"
+        url = "https://storage.googleapis.com/alphafold/alphafold_params_2021-07-14.tar"
         success_marker = params_dir.joinpath("download_finished.txt")
 
     if success_marker.is_file():
         return
 
     params_dir.mkdir(parents=True, exist_ok=True)
-    weights_command = [
-        "aria2c",
-        f"http://storage.googleapis.com/alphafold/{weights_name}",
-        "-d",
-        str(params_dir),
-    ]
-    rval = subprocess.run(weights_command, check=True)
-    if rval.returncode != 0:
-        raise Exception("Error downloading alphafold weights")
-
-    with tarfile.open(params_dir / weights_name, "r") as tar:
-        tar.extractall(params_dir)
-
-    (params_dir / weights_name).unlink()
+    response = requests.get(url, stream=True)
+    file_size = int(response.headers.get("Content-Length", 0))
+    with tqdm.tqdm.wrapattr(
+        response.raw,
+        "read",
+        total=file_size,
+        desc=f"Downloading alphafold2 weights to {data_dir}",
+    ) as response_raw:
+        # Open in stream mode ("r|"), as our requests response doesn't support seeking)
+        file = tarfile.open(fileobj=response_raw, mode="r|")
+        file.extractall(path=params_dir)
     success_marker.touch()
 
 
 if __name__ == "__main__":
     # TODO: Arg to select which one
-    download_alphafold_params("AlphaFold2-multimer-v2")
-    download_alphafold_params("AlphaFold2-ptm")
+    download_alphafold_params("alphafold2_multimer_v3")
+    download_alphafold_params("alphafold2_ptm")
