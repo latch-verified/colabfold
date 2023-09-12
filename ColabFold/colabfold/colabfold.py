@@ -91,7 +91,7 @@ def run_mmseqs2(x, prefix, use_env=True, use_filter=True,
         logger.warning(f"Error while fetching result from MSA server. Retrying... ({error_count}/5)")
         logger.warning(f"Error: {e}")
         time.sleep(5)
-        if error_count > 5:
+        if error_count > 50:
           raise
         continue
       break
