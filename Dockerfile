@@ -21,22 +21,25 @@ SHELL ["conda", "run", "-n", "alphafold", "/bin/bash", "-c"]
 RUN conda update -n base conda -y
 RUN conda install -c conda-forge python=3.10 openmm==7.7.0 pdbfixer -y
 
-RUN conda install -c conda-forge -c bioconda kalign2=2.04 hhsuite=3.3.0 mmseqs2=14.7e284 -y
-RUN pip install --upgrade pip
-RUN pip install --no-warn-conflicts "colabfold[alphafold-minus-jax] @ git+https://github.com/sokrypton/ColabFold" tensorflow==2.12.0
-RUN pip install https://storage.googleapis.com/jax-releases/cuda11/jaxlib-0.4.14+cuda11.cudnn86-cp310-cp310-manylinux2014_x86_64.whl
-RUN pip install jax==0.4.14 chex==0.1.6 biopython==1.79
-
 # mmseqs2
 RUN git clone https://github.com/soedinglab/MMseqs2.git && \
     cd MMseqs2 && mkdir build && cd build && \
     cmake -DCMAKE_BUILD_TYPE=RELEASE -DCMAKE_INSTALL_PREFIX=. .. && \
     make && make install
 
+RUN conda install -c conda-forge -c bioconda kalign2=2.04 hhsuite=3.3.0 mmseqs2=14.7e284 -y
+RUN pip install --upgrade pip
+#RUN pip install --no-warn-conflicts "colabfold[alphafold-minus-jax] @ git+https://github.com/sokrypton/ColabFold" tensorflow==2.12.0
+RUN pip install https://storage.googleapis.com/jax-releases/cuda11/jaxlib-0.4.14+cuda11.cudnn86-cp310-cp310-manylinux2014_x86_64.whl
+RUN pip install jax==0.4.14 chex==0.1.6 biopython==1.79
+
 # ColabFold
+RUN pip install --no-warn-conflicts tensorflow==2.12.0 alphafold-colabfold==v2.3.5
+
 RUN pip install --upgrade latch
 COPY ColabFold /root/ColabFold
-RUN pip install -e /root/ColabFold
+RUN pip install /root/ColabFold
+RUN sed -i 's/weights = jax.nn.softmax(logits)/logits=jnp.clip(logits,-1e8,1e8);weights=jax.nn.softmax(logits)/g' /root/miniconda3/envs/alphafold/lib/python3.10/site-packages/alphafold/model/modules.py
 
 ENV PATH="/root/MMseqs2/build/bin:/root/miniconda3/envs/alphafold/bin:/root/miniconda3/bin:${PATH}"
 
