@@ -19,9 +19,8 @@ RUN conda create --name alphafold python==3.10
 SHELL ["conda", "run", "-n", "alphafold", "/bin/bash", "-c"]
 
 RUN conda update -n base conda -y
-RUN conda install -c conda-forge python=3.10 cudnn==8.8.0.121 cudatoolkit==11.6.0 openmm==7.7.0 pdbfixer -y
-RUN wget -qnc https://raw.githubusercontent.com/YoshitakaMo/localcolabfold/main/update_linux.sh --no-check-certificate
-RUN chmod +x update_linux.sh
+RUN conda install -c conda-forge python=3.10 openmm==7.7.0 pdbfixer -y
+
 RUN conda install -c conda-forge -c bioconda kalign2=2.04 hhsuite=3.3.0 mmseqs2=14.7e284 -y
 RUN pip install --upgrade pip
 RUN pip install --no-warn-conflicts "colabfold[alphafold-minus-jax] @ git+https://github.com/sokrypton/ColabFold" tensorflow==2.12.0
@@ -32,12 +31,9 @@ RUN pip install jax==0.4.14 chex==0.1.6 biopython==1.79
 RUN git clone https://github.com/soedinglab/MMseqs2.git && \
     cd MMseqs2 && mkdir build && cd build && \
     cmake -DCMAKE_BUILD_TYPE=RELEASE -DCMAKE_INSTALL_PREFIX=. .. && \
-    make && make install && \
-    export PATH=$(pwd)/bin/:$PATH
+    make && make install
 
 # ColabFold
-RUN pip install latch
-
 RUN pip install --upgrade latch
 COPY ColabFold /root/ColabFold
 RUN pip install -e /root/ColabFold
