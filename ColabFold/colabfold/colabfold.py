@@ -85,10 +85,11 @@ def run_mmseqs2(x, prefix, use_env=True, use_filter=True,
         res = requests.post(f'{host_url}/{submission_endpoint}', data={'q':query,'mode': mode}, timeout=6.02)
       except requests.exceptions.Timeout:
         logger.warning("Timeout while submitting to MSA server. Retrying...")
+        time.sleep(5)
         continue
       except Exception as e:
         error_count += 1
-        logger.warning(f"Error while fetching result from MSA server. Retrying... ({error_count}/5)")
+        logger.warning(f"Error while fetching result from MSA server. Retrying... ({error_count}/50)")
         logger.warning(f"Error: {e}")
         time.sleep(5)
         if error_count > 50:
