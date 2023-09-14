@@ -77,32 +77,32 @@ def run_mmseqs2(x, prefix, use_env=True, use_filter=True,
       query += f">{n}\n{seq}\n"
       n += 1
 
+    start_poll = time.time()
     while True:
-      error_count = 0
+      if time.time() - start_poll > 3600:
+        logger.error("Server timeout")
+        out = {"status":"ERROR"}
+        return out
+
       try:
         # https://requests.readthedocs.io/en/latest/user/advanced/#advanced
         # "good practice to set connect timeouts to slightly larger than a multiple of 3"
         res = requests.post(f'{host_url}/{submission_endpoint}', data={'q':query,'mode': mode}, timeout=6.02)
-      except requests.exceptions.Timeout:
-        logger.warning("Timeout while submitting to MSA server. Retrying...")
-        time.sleep(5)
+        try:
+          out = res.json()
+          return out
+        except ValueError:
+          if "Bad Gateway" in res.text:
+            logger.info("Waiting for server startup")
+            time.sleep(10)
+            continue
+          logger.error(f"Server didn't reply with json: {res.text}")
+          out = {"status":"ERROR"}
+          return out
+      except (requests.exceptions.Timeout, requests.exceptions.ConnectionError, requests.exceptions.HTTPError) as e:
+        logger.warning("Waiting for server startup")
+        time.sleep(10)
         continue
-      except Exception as e:
-        error_count += 1
-        logger.warning(f"Error while fetching result from MSA server. Retrying... ({error_count}/50)")
-        logger.warning(f"Error: {e}")
-        time.sleep(5)
-        if error_count > 50:
-          raise
-        continue
-      break
-
-    try:
-      out = res.json()
-    except ValueError:
-      logger.error(f"Server didn't reply with json: {res.text}")
-      out = {"status":"ERROR"}
-    return out
 
   def status(ID):
     while True:
