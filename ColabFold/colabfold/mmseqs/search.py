@@ -26,7 +26,7 @@ def run_mmseqs(mmseqs: Path, params: List[Union[str, Path]]):
 def mmseqs_search_monomer(
     dbbase: Path,
     base: Path,
-    uniref_db: Path = Path("uniref30_2103_db"),
+    uniref_db: Path = Path("uniref30_2202_db"),
     template_db: Path = Path(""),  # Unused by default
     metagenomic_db: Path = Path("colabfold_envdb_202108_db"),
     mmseqs: Path = Path("mmseqs"),
@@ -147,7 +147,7 @@ def mmseqs_search_monomer(
 def mmseqs_search_pair(
     dbbase: Path,
     base: Path,
-    uniref_db: Path = Path("uniref30_2103_db"),
+    uniref_db: Path = Path("uniref30_2202_db"),
     mmseqs: Path = Path("mmseqs"),
     s: float = 8,
     threads: int = 64,
@@ -349,7 +349,7 @@ def main():
     # dbs are uniref, templates and environmental
     # We normally don't use templates
     parser.add_argument(
-        "--db1", type=Path, default=Path("uniref30_2103_db"), help="UniRef database"
+        "--db1", type=Path, default=Path("uniref30_2202_db"), help="UniRef database"
     )
     parser.add_argument("--db2", type=Path, default=Path(""), help="Templates database")
     parser.add_argument(
@@ -373,7 +373,7 @@ def main():
     parser.add_argument("--diff", type=int, default=3000)
     parser.add_argument("--qsc", type=float, default=-20.0)
     parser.add_argument("--max-accept", type=int, default=1000000)
-    parser.add_argument("--db-load-mode", type=int, default=2)
+    parser.add_argument("--db-load-mode", type=int, default=0)
     parser.add_argument("--threads", type=int, default=64)
     args = parser.parse_args()
 

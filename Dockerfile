@@ -1,4 +1,4 @@
-FROM 812206152185.dkr.ecr.us-west-2.amazonaws.com/latch-base-cuda:ca95-main
+FROM 812206152185.dkr.ecr.us-west-2.amazonaws.com/latch-base-cuda:cb86-main
 
 # conda envs
 ENV CONDA_PREFIX="/root/miniconda3/envs/alphafold"
@@ -15,41 +15,36 @@ RUN apt-get update && apt install --upgrade \
     && conda init bash
 
 # activate for following run commands
-RUN conda create --name alphafold python==3.9
+RUN conda create --name alphafold python==3.10
 SHELL ["conda", "run", "-n", "alphafold", "/bin/bash", "-c"]
 
-RUN conda install -c conda-forge cudatoolkit=11.4
-
-# patch cuda libcusolver for cuda 11.4 -- nvidia bug wants to find deprecated library solver
-RUN apt-key del 7fa2af80
-RUN wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.0-1_all.deb && dpkg -i cuda-keyring_1.0-1_all.deb
-RUN rm /etc/apt/sources.list.d/cuda.list
-RUN apt-get update && apt-get install libcusolver-11-0 -y
-RUN ln /usr/local/cuda-11.0/lib64/libcusolver.so.10 /usr/local/cuda-11.0/lib64/libcusolver.so.11
-ENV LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:/usr/local/cuda-11.0/lib64"
+RUN conda update -n base conda -y
+RUN conda install -c conda-forge python=3.10 openmm==7.7.0 pdbfixer -y
 
 # mmseqs2
 RUN git clone https://github.com/soedinglab/MMseqs2.git && \
     cd MMseqs2 && mkdir build && cd build && \
     cmake -DCMAKE_BUILD_TYPE=RELEASE -DCMAKE_INSTALL_PREFIX=. .. && \
-    make && make install && \
-    export PATH=$(pwd)/bin/:$PATH
+    make && make install
+
+RUN conda install -c conda-forge -c bioconda kalign2=2.04 hhsuite=3.3.0 mmseqs2=14.7e284 -y
+RUN pip install --upgrade pip
+#RUN pip install --no-warn-conflicts "colabfold[alphafold-minus-jax] @ git+https://github.com/sokrypton/ColabFold" tensorflow==2.12.0
+RUN pip install https://storage.googleapis.com/jax-releases/cuda11/jaxlib-0.4.14+cuda11.cudnn86-cp310-cp310-manylinux2014_x86_64.whl
+RUN pip install jax==0.4.14 chex==0.1.6 biopython==1.79
 
 # ColabFold
-RUN pip install latch
-RUN pip install alphafold-colabfold
-RUN pip install --upgrade "jax[cuda]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-RUN pip install --upgrade jaxlib
-RUN conda install -c conda-forge -c bioconda kalign2=2.04 hhsuite=3.3.0 openmm=7.5.1 pdbfixer numpy=1.22.4
+RUN pip install --no-warn-conflicts tensorflow==2.12.0 alphafold-colabfold==v2.3.5
 
 RUN pip install --upgrade latch
 COPY ColabFold /root/ColabFold
-RUN pip install -e /root/ColabFold
+RUN pip install /root/ColabFold
+RUN sed -i 's/weights = jax.nn.softmax(logits)/logits=jnp.clip(logits,-1e8,1e8);weights=jax.nn.softmax(logits)/g' /root/miniconda3/envs/alphafold/lib/python3.10/site-packages/alphafold/model/modules.py
 
 ENV PATH="/root/MMseqs2/build/bin:/root/miniconda3/envs/alphafold/bin:/root/miniconda3/bin:${PATH}"
 
 RUN pip uninstall protobuf -y
-RUN pip install --no-binary protobuf protobuf
+RUN pip install --no-binary protobuf protobuf==3.20
 
 ENV TF_FORCE_UNIFIED_MEMORY="1"
 ENV XLA_PYTHON_CLIENT_MEM_FRACTION="4.0"
@@ -58,4 +53,3 @@ COPY wf /root/wf
 ARG tag
 ENV FLYTE_INTERNAL_IMAGE $tag
 WORKDIR /root
-
