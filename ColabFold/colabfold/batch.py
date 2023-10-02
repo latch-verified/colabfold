@@ -1507,19 +1507,23 @@ def run(
 
         # load the scores
         scores = []
+        handles = []
         for r in results["rank"][:5]:
+            handles.append(r)
             scores_file = result_dir.joinpath(f"{jobname}_scores_{r}.json")
             with scores_file.open("r") as handle:
                 scores.append(json.load(handle))
 
         # write alphafold-db format (pAE)
-        if "pae" in scores[0]:
-          af_pae_file = result_dir.joinpath(f"{jobname}_predicted_aligned_error_v1.json")
-          af_pae_file.write_text(json.dumps({
-              "predicted_aligned_error":scores[0]["pae"],
-              "max_predicted_aligned_error":scores[0]["max_pae"]}))
-          result_files.append(af_pae_file)
+        for i, score in enumerate(scores):
+          if "pae" in score:
+            af_pae_file = result_dir.joinpath(f"{jobname}_{handles[i]}_predicted_aligned_error_v1.json")
+            af_pae_file.write_text(json.dumps({
+                "predicted_aligned_error":score["pae"],
+                "max_predicted_aligned_error":score["max_pae"]}))
+            result_files.append(af_pae_file)
 
+        if "pae" in scores[0]:
           # make pAE plots
           paes_plot = plot_paes([np.asarray(x["pae"]) for x in scores],
               Ls=query_sequence_len_array, dpi=dpi)
