@@ -67,7 +67,7 @@ def mine_inference_amber(
         nrof_recycles = 50
 
     print("Organizing data", flush=True)
-    input_path = Path("/root/sequence.fasta")
+    input_path = Path("/sequence.fasta")
     if fasta_file is not None:
         with open(Path(fasta_file), "r") as f:
             with open(input_path, "w") as out:
