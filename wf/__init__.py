@@ -17,6 +17,44 @@ def _fmt_dir(bucket_path: str) -> str:
     return bucket_path
 
 
+def handle_error(out: str):
+    if "RESOURCE_EXHAUSTED" in out:
+        message(
+            "error",
+            {
+                "title": "Resource Exhausted",
+                "body": "The GPU ran out of memory. Please try again with a smaller input or use AlphaFold2.",
+            },
+        )
+    elif "MMseqs2 API is giving errors" in out:
+        message(
+            "error",
+            {
+                "title": "MMseqs2 API Error",
+                "body": "The MMseqs2 API is giving errors. Please contact support@latch.bio or message us via the chat in the bottom of the left sidebar.",
+            },
+        )
+    elif "Could not get MSA/templates" in out:
+        message(
+            "error",
+            {
+                "title": "MMseqs2 Results Parsing Error",
+                "body": "Failed to parse results from MMseqs2. Please contact support@latch.bio or message us via the chat in the bottom of the left sidebar.",
+            },
+        )
+    elif "Could not generate input features" in out:
+        message(
+            "error",
+            {
+                "title": "No candidates found for sequence.",
+                "body": "No candidates found for sequence. Please contact support@latch.bio or message us via the chat in the bottom of the left sidebar.",
+            },
+        )
+    else:
+        return
+
+    raise RuntimeError(f"colabfold_batch failed with error {out}")
+
 @large_gpu_task
 def mine_inference_amber(
     fasta_file: Optional[LatchFile],
@@ -32,7 +70,7 @@ def mine_inference_amber(
         message(
             "warning",
             {
-                "title": f"Invalid Input",
+                "title": "Invalid Input",
                 "body": "Number of models below 1. Setting to 1",
             },
         )
@@ -41,7 +79,7 @@ def mine_inference_amber(
         message(
             "warning",
             {
-                "title": f"Invalid Input",
+                "title": "Invalid Input",
                 "body": "Number of models greater than 5. Setting to 5",
             },
         )
@@ -51,7 +89,7 @@ def mine_inference_amber(
         message(
             "warning",
             {
-                "title": f"Invalid Input",
+                "title": "Invalid Input",
                 "body": "Number of recycles below 1. Setting to 1",
             },
         )
@@ -60,7 +98,7 @@ def mine_inference_amber(
         message(
             "warning",
             {
-                "title": f"Invalid Input",
+                "title": "Invalid Input",
                 "body": "Number of recycles greater than 50. Setting to 50",
             },
         )
@@ -102,7 +140,7 @@ def mine_inference_amber(
             message(
                 "error",
                 {
-                    "title": f"Empty Input",
+                    "title": "Empty Input",
                     "body": "No sequences were found in the input.",
                 },
             )
@@ -111,7 +149,7 @@ def mine_inference_amber(
             message(
                 "error",
                 {
-                    "title": f"Invalid Input",
+                    "title": "Invalid Input",
                     "body": "Input contains an odd number of lines indicating an unpaired line",
                 },
             )
@@ -154,7 +192,6 @@ def mine_inference_amber(
         shell=True,
     )
 
-    failed = False
     while True:
         if process.stdout is None:
             break
@@ -165,47 +202,18 @@ def mine_inference_amber(
             break
 
         if realtime_output:
-            failed = True
-            if "RESOURCE_EXHAUSTED" in realtime_output:
-                message(
-                    "error",
-                    {
-                        "title": f"Resource Exhausted",
-                        "body": "The GPU ran out of memory. Please try again with a smaller input or use AlphaFold2.",
-                    },
-                )
-            elif "MMseqs2 API is giving errors" in realtime_output:
-                message(
-                    "error",
-                    {
-                        "title": f"MMseqs2 API Error",
-                        "body": "The MMseqs2 API is giving errors. Please contact support@latch.bio or message us via the chat in the bottom of the left sidebar.",
-                    },
-                )
-            elif "Could not get MSA/templates" in realtime_output:
-                message(
-                    "error",
-                    {
-                        "title": f"MMseqs2 Results Parsing Error",
-                        "body": "Failed to parse results from MMseqs2. Please contact support@latch.bio or message us via the chat in the bottom of the left sidebar.",
-                    },
-                )
-            elif "Could not generate input features" in realtime_output:
-                message(
-                    "error",
-                    {
-                        "title": f"No candidates found for sequence.",
-                        "body": "No candidates found for sequence. Please contact support@latch.bio or message us via the chat in the bottom of the left sidebar.",
-                    },
-                )
-            else:
-                failed = False
+            handle_error(realtime_output)
 
-    _, error = process.communicate()
+    raw_out, raw_err = process.communicate()
+
+    raw_out_decoded = raw_out.decode("utf-8")
+    raw_err_decoded = raw_err.decode("utf-8")
+    handle_error(raw_out_decoded)
+    handle_error(raw_err_decoded)
 
     retval = process.poll()
-    if retval != 0 or failed or error is not None:
-        raise RuntimeError(f"colabfold_batch failed with error {error}")
+    if retval != 0 or (raw_err_decoded is not None and raw_err_decoded != ""):
+        raise RuntimeError(f"colabfold_batch failed with error {raw_err_decoded}")
 
     cleaned_output_dir = Path("/root/cleaned_preds")
     pdb_dir = cleaned_output_dir / "pdb results"
