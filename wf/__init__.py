@@ -206,14 +206,17 @@ def mine_inference_amber(
 
     raw_out, raw_err = process.communicate()
 
-    raw_out_decoded = raw_out.decode("utf-8")
-    raw_err_decoded = raw_err.decode("utf-8")
-    handle_error(raw_out_decoded)
-    handle_error(raw_err_decoded)
+    if raw_out is not None:
+        raw_out = raw_out.decode("utf-8")
+        handle_error(raw_out)
+
+    if raw_err is not None:
+        raw_err = raw_err.decode("utf-8")
+        handle_error(raw_err)
 
     retval = process.poll()
-    if retval != 0 or (raw_err_decoded is not None and raw_err_decoded != ""):
-        raise RuntimeError(f"colabfold_batch failed with error {raw_err_decoded}")
+    if retval != 0 or (raw_err is not None and raw_err != ""):
+        raise RuntimeError(f"colabfold_batch failed with error {raw_err}")
 
     cleaned_output_dir = Path("/root/cleaned_preds")
     pdb_dir = cleaned_output_dir / "pdb results"
