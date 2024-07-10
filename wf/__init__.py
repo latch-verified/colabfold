@@ -190,6 +190,8 @@ def mine_inference_amber(
     process = subprocess.Popen(
         command,
         shell=True,
+        stderr=subprocess.PIPE,
+        stdout=subprocess.PIPE,
     )
 
     while True:
@@ -203,6 +205,7 @@ def mine_inference_amber(
 
         if realtime_output:
             handle_error(realtime_output)
+            print(realtime_output, flush=True)
 
     raw_out, raw_err = process.communicate()
 
