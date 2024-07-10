@@ -218,8 +218,8 @@ def mine_inference_amber(
         handle_error(raw_err)
 
     retval = process.poll()
-    if retval != 0 or (raw_err is not None and raw_err != ""):
-        raise RuntimeError(f"colabfold_batch failed with error {raw_err}")
+    if retval != 0:
+        raise RuntimeError(f"colabfold_batch failed with error {raw_err if raw_err is not None else 'unknown'}")
 
     cleaned_output_dir = Path("/root/cleaned_preds")
     pdb_dir = cleaned_output_dir / "pdb results"
