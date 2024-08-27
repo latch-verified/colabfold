@@ -9,7 +9,13 @@ from flytekit.core.annotation import FlyteAnnotation
 from latch import large_gpu_task, message, workflow
 from latch.resources.launch_plan import LaunchPlan
 from latch.types import LatchDir, LatchFile
+from dataclasses import dataclass
+from enum import Enum
 
+class PairedParam(Enum):
+    unpaired = "unpaired"
+    paired = "paired"
+    unpaired_paired = "unpaired_paired"
 
 def _fmt_dir(bucket_path: str) -> str:
     if bucket_path[-1] == "/":
@@ -64,6 +70,8 @@ def mine_inference_amber(
     output_dir: Optional[LatchDir],
     nrof_recycles: int,
     template_dir: Optional[LatchDir],
+    max_seq: int = 508,
+    paired_option: PairedParam = PairedParam.unpaired,
 ) -> LatchDir:
 
     if nrof_models < 1:
@@ -103,6 +111,15 @@ def mine_inference_amber(
             },
         )
         nrof_recycles = 50
+    if max_seq < 1:
+        message(
+            "warning",
+            {
+                "title": "Invalid Input",
+                "body": "Max Seq below 1. Setting to default value of 508",
+            },
+        )
+        max_seq = 508
 
     print("Organizing data", flush=True)
     input_path = Path("/sequence.fasta")
@@ -177,7 +194,22 @@ def mine_inference_amber(
         "/root/data",
         "--host-url",
         "http://ec2-52-38-163-139.us-west-2.compute.amazonaws.com:80/api",
+        "--max-seq",
+        str(max_seq),
     ]
+
+    if paired_option.value == "unpaired_paired":
+        command.extend(
+            ["--pair-mode", "unpaired_paired"]
+        )
+    elif paired_option.value == "paired":
+        command.extend(
+            ["--pair-mode", "paired"]
+        )
+    else:
+        command.extend(
+            ["--pair-mode", "unpaired"]
+        )
 
     if template_dir is not None:
         local_template_dir = Path(template_dir)
@@ -284,6 +316,8 @@ def colabfold_mmseqs2_wf(
     custom_output_dir: Optional[LatchDir] = None,
     nrof_models: int = 1,
     nrof_recycles: int = 3,
+    max_seq: int = 508,
+    paired_option: PairedParam = PairedParam.unpaired,
     template_dir: Optional[LatchDir] = None,
     run_name: str = "run1",
 ) -> LatchDir:
@@ -369,6 +403,8 @@ def colabfold_mmseqs2_wf(
                 - nrof_models
                 - nrof_recycles
                 - template_dir
+                - paired_option
+                - max_seq
 
         - section: Output Settings
           flow:
@@ -431,6 +467,18 @@ def colabfold_mmseqs2_wf(
             __metadata__:
                 display_name: Number of Models
 
+        paired_option:
+            Pair mode option (default unpaired). If unpaired, ColabFold generates separate MSAs for each chain of the dimer.
+
+            __metadata__:
+                display_name: Pair Mode
+
+        max_seq:
+            Ensures that ColabFold can process the full length of the sequence and captures all relevant structural information.
+
+            __metadata__:
+                display_name: Max Seq
+
         nrof_recycles:
             Number of prediction cycles. Increasing recycles can improve the quality but slows down the prediction.
 
@@ -452,6 +500,9 @@ def colabfold_mmseqs2_wf(
         output_dir=custom_output_dir,
         nrof_recycles=nrof_recycles,
         template_dir=template_dir,
+        paired_option=paired_option,
+        max_seq=max_seq
+
     )
 
 
