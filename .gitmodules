@@ -2,3 +2,7 @@
 	path = alphafold
 	url = https://github.com/Poko18/alphafold.git
 	branch = initial_guess
+[submodule "ColabFold"]
+	path = ColabFold
+	url = https://github.com/Poko18/ColabFold.git
+	branch = implement_initialguess
