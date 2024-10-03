@@ -1,0 +1,4 @@
+[submodule "alphafold"]
+	path = alphafold
+	url = https://github.com/Poko18/alphafold.git
+	branch = initial_guess
