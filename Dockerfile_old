@@ -1,0 +1,15 @@
+# FROM 812206152185.dkr.ecr.us-west-2.amazonaws.com/50_wf_init_colabfold_mmseqs2_wf:v1.5.2-476ecb
+
+# COPY wf /root/wf
+# COPY ColabFold /root/ColabFold
+# COPY alphafold /root/alphafold
+
+# WORKDIR /root/ColabFold
+# RUN pip install -e .
+# WORKDIR /root/alphafold
+# RUN pip install -e .
+# RUN pip install -q "jax[cuda]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+
+# ARG tag
+# ENV FLYTE_INTERNAL_IMAGE $tag
+# WORKDIR /root

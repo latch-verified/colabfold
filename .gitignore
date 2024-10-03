@@ -2,3 +2,4 @@
 .env/
 .latch_report.tar.gz
 /**/__pycache__
+.latch/.logs

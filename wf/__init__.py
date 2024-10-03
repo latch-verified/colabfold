@@ -1,6 +1,7 @@
 import shutil
 import subprocess
 import time
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, Optional
@@ -9,8 +10,7 @@ from flytekit.core.annotation import FlyteAnnotation
 from latch import large_gpu_task, message, workflow
 from latch.resources.launch_plan import LaunchPlan
 from latch.types import LatchDir, LatchFile
-from dataclasses import dataclass
-from enum import Enum
+
 
 class PairedParam(Enum):
     unpaired = "unpaired"
@@ -64,6 +64,7 @@ def handle_error(out: str):
 @large_gpu_task
 def mine_inference_amber(
     fasta_file: Optional[LatchFile],
+    pdb_file: Optional[LatchFile],
     aa_sequence: Optional[str],
     run_name: str,
     nrof_models: int,
@@ -72,6 +73,8 @@ def mine_inference_amber(
     template_dir: Optional[LatchDir],
     max_seq: int = 508,
     paired_option: PairedParam = PairedParam.unpaired,
+    amber: bool = False,
+    use_gpu_relax: bool = False
 ) -> LatchDir:
 
     if nrof_models < 1:
@@ -123,12 +126,15 @@ def mine_inference_amber(
 
     print("Organizing data", flush=True)
     input_path = Path("/sequence.fasta")
+    initial_guess = False
     if fasta_file is not None:
         with open(Path(fasta_file), "r") as f:
             with open(input_path, "w") as out:
                 for line in f:
                     if line.strip() != "":
                         out.write(f"{line.strip()}\n")
+    elif pdb_file is not None:
+        initial_guess = True
     else:
         if aa_sequence is None:
             raise ValueError(
@@ -150,29 +156,29 @@ def mine_inference_amber(
             else:
                 for i, line in enumerate(broken):
                     f.write(f">sequence_{i}\n{line}\n")
-
-    with input_path.open("r") as f:
-        nrof_lines = sum(1 for _ in f)
-        if nrof_lines == 0:
-            message(
-                "error",
-                {
-                    "title": "Empty Input",
-                    "body": "No sequences were found in the input.",
-                },
-            )
-            raise RuntimeError("No sequences were found in the input.")
-        if nrof_lines % 2 != 0:
-            message(
-                "error",
-                {
-                    "title": "Invalid Input",
-                    "body": "Input contains an odd number of lines indicating an unpaired line",
-                },
-            )
-            raise RuntimeError(
-                "Input contains an odd number of lines indicating an unpaired line"
-            )
+    if not initial_guess:
+        with input_path.open("r") as f:
+            nrof_lines = sum(1 for _ in f)
+            if nrof_lines == 0:
+                message(
+                    "error",
+                    {
+                        "title": "Empty Input",
+                        "body": "No sequences were found in the input.",
+                    },
+                )
+                raise RuntimeError("No sequences were found in the input.")
+            if nrof_lines % 2 != 0:
+                message(
+                    "error",
+                    {
+                        "title": "Invalid Input",
+                        "body": "Input contains an odd number of lines indicating an unpaired line",
+                    },
+                )
+                raise RuntimeError(
+                    "Input contains an odd number of lines indicating an unpaired line"
+                )
 
     local_output = Path("/root/preds")
     local_output.mkdir(parents=True, exist_ok=True)
@@ -180,23 +186,50 @@ def mine_inference_amber(
     data_dir = Path("/root/data")
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    command = [
-        "colabfold_batch",
-        str(input_path),
-        "/root/preds",
-        "--amber",
-        "--use-gpu-relax",
-        "--num-models",
-        str(nrof_models),
-        "--num-recycle",
-        str(nrof_recycles),
-        "--data",
-        "/root/data",
-        "--host-url",
-        "http://ec2-52-38-163-139.us-west-2.compute.amazonaws.com:80/api",
-        "--max-seq",
-        str(max_seq),
-    ]
+    if initial_guess:
+        command = [
+            "colabfold_batch",
+            str(pdb_file.local_path),
+            "/root/preds",
+            "--initial-guess",
+            "--num-models",
+            str(nrof_models),
+            "--num-recycle",
+            str(nrof_recycles),
+            "--data",
+            "/root/data",
+            "--host-url",
+            "http://ec2-52-38-163-139.us-west-2.compute.amazonaws.com:80/api",
+            "--max-seq",
+            str(max_seq),
+        ]
+
+    else:
+        command = [
+            "colabfold_batch",
+            str(input_path),
+            "/root/preds",
+            "--num-models",
+            str(nrof_models),
+            "--num-recycle",
+            str(nrof_recycles),
+            "--data",
+            "/root/data",
+            "--host-url",
+            "http://ec2-52-38-163-139.us-west-2.compute.amazonaws.com:80/api",
+            "--max-seq",
+            str(max_seq),
+        ]
+
+    if amber:
+        command.extend(
+            ["--amber"]
+        )
+
+    if use_gpu_relax:
+        command.extend(
+            ["--use-gpu-relax"]
+        )
 
     if paired_option.value == "unpaired_paired":
         command.extend(
@@ -279,6 +312,21 @@ def mine_inference_amber(
 def colabfold_mmseqs2_wf(
     input_sequence_fork: str = "text",
     output_location_fork: str = "default",
+    pdb_file: Optional[
+        Annotated[
+            LatchFile,
+            FlyteAnnotation(
+                {
+                    "rules": [
+                        {
+                            "regex": "(.pdb|.PDB)$",
+                            "message": "Only .pdb extensions are valid",
+                        }
+                    ],
+                }
+            ),
+        ]
+    ] = None,
     fasta_file: Optional[
         Annotated[
             LatchFile,
@@ -320,6 +368,8 @@ def colabfold_mmseqs2_wf(
     paired_option: PairedParam = PairedParam.unpaired,
     template_dir: Optional[LatchDir] = None,
     run_name: str = "run1",
+    amber: bool = False,
+    use_gpu_relax: bool = False
 ) -> LatchDir:
     """The ColabFold version of AlphaFold2 is optimized for extremely fast predictions on small proteins. It uses the same basic architecture as AlphaFold2, but optimizes the sequence search procedure.
 
@@ -396,6 +446,13 @@ def colabfold_mmseqs2_wf(
                     flow:
                         - params:
                             - fasta_file
+                initial_guess:
+                    display_name: Initial Guess
+                    _tmp_unwrap_optionals:
+                        - pdb_file
+                    flow:
+                        - params:
+                            - pdb_file
 
         - section: Tuning Parameters
           flow:
@@ -405,6 +462,8 @@ def colabfold_mmseqs2_wf(
                 - template_dir
                 - paired_option
                 - max_seq
+                - amber
+                - use_gpu_relax
 
         - section: Output Settings
           flow:
@@ -426,6 +485,21 @@ def colabfold_mmseqs2_wf(
                     - params:
                         - custom_output_dir
     Args:
+        amber:
+            Toggle to add the --amber flag.
+
+            __metadata__:
+                display_name: Amber
+        use_gpu_relax:
+            Toggle to add the --use-gpu-relax flag.
+
+            __metadata__:
+                display_name: GPU Relax
+        pdb_file:
+            Path to a PDB file containing a sequence. The initial guess flag will be added and the coordinates in the file will be used for the initial guess.
+
+            __metadata__:
+                display_name: PDB File
         fasta_file:
             Path to a FASTA file containing amino acid sequence. DNA and RNA are not supported.
 
@@ -501,8 +575,10 @@ def colabfold_mmseqs2_wf(
         nrof_recycles=nrof_recycles,
         template_dir=template_dir,
         paired_option=paired_option,
-        max_seq=max_seq
-
+        max_seq=max_seq,
+        pdb_file=pdb_file,
+        amber=amber,
+        use_gpu_relax=use_gpu_relax
     )
 
 

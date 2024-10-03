@@ -42,16 +42,18 @@ class TqdmHandler(logging.StreamHandler):
         tqdm.write(msg)
 
 
-def setup_logging(log_file: Path):
+def setup_logging(log_file: Path, mode: str = "w") -> None:
     log_file.parent.mkdir(exist_ok=True, parents=True)
     root = logging.getLogger()
     if root.handlers:
         for handler in root.handlers:
+            handler.close()
             root.removeHandler(handler)
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(message)s",
-        handlers=[TqdmHandler(), logging.FileHandler(log_file)],
+        handlers=[TqdmHandler(), logging.FileHandler(log_file, mode=mode)],
+        force=True,
     )
     # otherwise jax will tell us about its search for devices
     absl_logging.set_verbosity("error")
@@ -122,6 +124,10 @@ mmcif_order = {
 
 class CFMMCIFIO(MMCIFIO):
     def _save_dict(self, out_file):
+        asym_id_auth_to_label = dict(
+            zip(self.dic.get("_atom_site.auth_asym_id", ()),
+                self.dic.get("_atom_site.label_asym_id", ())))
+
         # Form dictionary where key is first part of mmCIF key and value is list
         # of corresponding second parts
         key_lists = {}
@@ -199,7 +205,9 @@ _struct_asym.entity_id
             chain_idx = 1
             for model in self.structure:
                 for chain in model:
-                    out_file.write(f"{chain.get_id()} {chain_idx}\n")
+                    if chain.get_id() in asym_id_auth_to_label:
+                        label_asym_id = asym_id_auth_to_label[chain.get_id()]
+                        out_file.write(f"{label_asym_id} {chain_idx}\n")
                     chain_idx += 1
             out_file.write("#\n")
 
